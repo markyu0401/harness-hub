@@ -34,7 +34,23 @@
 
 ## 项目阶段
 
-当前处于 **M0：开源仓库初始化、需求与架构定稿**，即将进入 **M1：全机发现引擎与 Harness 适配器开发**。详见 [ROADMAP.md](docs/ROADMAP.md)。
+当前已完成 **M1–M3 可运行原型（发现引擎 + 四端适配器 + 拖拽矩阵 Web UI + 内置 MCP 网关与探针校验）**，后续将推进 **M4 后台守护进程与向导完善**。详见 [ROADMAP.md](docs/ROADMAP.md)。
+
+### 快速启动
+
+```bash
+pnpm install
+pnpm test
+pnpm build
+
+# 交互式安装向导（可选仅本机 127.0.0.1 或远程 0.0.0.0、访问口令与开机自启）
+node apps/server/dist/cli.js setup
+
+# 或直接安装常驻后台服务（默认仅监听安全的 127.0.0.1:4310）
+node apps/server/dist/cli.js service install
+```
+
+打开网页后，可通过 Chrome **将网页安装为应用** 一键做成独立桌面 App，无需每次输入端口。
 
 ## 开源协议
 

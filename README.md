@@ -61,8 +61,24 @@ See [ADR-001](docs/adr/001-dual-channel-skill-distribution-and-mcp-compatibility
 
 ## Project Status
 
-**Stage: M0 — Architecture & Planning** (Repository initialized; moving into M1 Discovery & Adapter Engine).  
+**Stage: Interactive Prototype Working (M1–M3 implemented, M4 daemonization upcoming).**  
 Check [docs/ROADMAP.md](docs/ROADMAP.md) for milestones and open issues.
+
+### Quick Start
+
+```bash
+pnpm install
+pnpm test
+pnpm build
+
+# Interactive setup wizard (choose 127.0.0.1 local-only or 0.0.0.0 LAN/Tailscale + auto-start)
+node apps/server/dist/cli.js setup
+
+# Or install the persistent background service directly (defaults to 127.0.0.1:4310)
+node apps/server/dist/cli.js service install
+```
+
+Then open `http://127.0.0.1:4310/` (or your LAN/Tailscale URL when remote access is enabled) and install it as a standalone desktop app via Chrome's **Install page as app** menu.
 
 ---
 
