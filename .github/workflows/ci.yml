@@ -1,0 +1,23 @@
+name: Repo Hygiene
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check required open-source files
+        run: |
+          test -f LICENSE
+          test -f README.md
+          test -f docs/PRD.md
+          test -f docs/ARCHITECTURE.md
+          test -f docs/ROADMAP.md
+      - name: Check for accidental secret patterns
+        run: |
+          ! grep -rnE "(ghp_[A-Za-z0-9]{20,}|ops_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,})" README* docs/ || exit 1
