@@ -376,4 +376,76 @@ describe('HarnessHub Server API & MCP Gateway', () => {
       await app.close();
     }
   });
+
+  it('auto-routes secret-backed HTTP MCPs (like LiteLLM) to Hub Gateway across harnesses without writing placeholders', async () => {
+    process.env.HARNESS_HUB_SKIP_CODEX_CLI = '1';
+    process.env.TEST_LITELLM_GATEWAY_KEY = 'sk-gateway-live-12345';
+    const home = await makeTempHome();
+
+    const upstreamHttp = http.createServer(async (req, res) => {
+      if (req.headers['x-litellm-api-key'] !== 'Bearer sk-gateway-live-12345') {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ detail: 'LiteLLM Virtual Key expected' }));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      const body = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined;
+      const srv = new McpServer({ name: 'litellm-mock', version: '1.0.0' });
+      srv.tool('model_list', 'List models', {}, async () => ({
+        content: [{ type: 'text', text: 'gpt-test' }],
+      }));
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      await srv.connect(transport);
+      await transport.handleRequest(req, res, body);
+      await srv.close();
+    });
+
+    await new Promise<void>((resolve) => upstreamHttp.listen(0, '127.0.0.1', resolve));
+    const upstreamAddr = upstreamHttp.address() as { port: number };
+    const upstreamUrl = `http://127.0.0.1:${upstreamAddr.port}/mcp`;
+
+    const { app } = await createHarnessHubApp({ homeDir: home, port: 0, skipServiceControl: true });
+    const address = await app.listen({ host: '127.0.0.1', port: 0 });
+
+    try {
+      await app.inject({
+        method: 'POST',
+        url: '/api/mcps',
+        payload: {
+          id: 'litellm',
+          transport: 'http',
+          url: upstreamUrl,
+          authType: 'header',
+          headers: { 'x-litellm-api-key': 'Bearer ${TEST_LITELLM_GATEWAY_KEY}' },
+        },
+      });
+
+      // Enabling without specifying mode auto-selects gateway mode for secret-backed header MCPs
+      const allocRes = await app.inject({
+        method: 'PATCH',
+        url: '/api/allocations/mcp',
+        payload: { mcpId: 'litellm', harnessId: 'codex', enabled: true },
+      });
+      expect(allocRes.statusCode).toBe(200);
+      expect(allocRes.json().registry.allocations.mcps.litellm.codex.mode).toBe('gateway');
+
+      // Apply sync writes only harness-hub gateway entry to Codex (no raw key or placeholder)
+      await app.inject({ method: 'POST', url: '/api/apply', payload: {} });
+      const codexToml = await fs.readFile(path.join(home, '.codex', 'config.toml'), 'utf8');
+      expect(codexToml).toContain('[mcp_servers.harness-hub]');
+      expect(codexToml).not.toContain('TEST_LITELLM_GATEWAY_KEY');
+
+      // Calling through Codex gateway endpoint succeeds against upstream
+      const client = new Client({ name: 'codex-litellm-tester', version: '1.0.0' });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${address}/mcp/codex`)));
+      const toolOut = await client.callTool({ name: 'litellm__model_list', arguments: {} });
+      expect((toolOut.content as Array<{ text?: string }>)[0]?.text).toBe('gpt-test');
+      await client.close();
+    } finally {
+      delete process.env.TEST_LITELLM_GATEWAY_KEY;
+      await app.close();
+      await new Promise<void>((resolve) => upstreamHttp.close(() => resolve()));
+    }
+  });
 });

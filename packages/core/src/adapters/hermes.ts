@@ -57,7 +57,8 @@ export class HermesAdapter extends BaseHarnessAdapter {
   protected planConfigUpdate(
     currentConfigText: string | undefined,
     desired: HarnessDesiredState,
-    managedMcpKeys: string[]
+    managedMcpKeys: string[],
+    availableEnvVars?: Set<string>
   ): ConfigPlanOutput {
     const beforeText = currentConfigText ?? '';
     const doc = YAML.parseDocument(beforeText || '{}\n');
@@ -79,6 +80,8 @@ export class HermesAdapter extends BaseHarnessAdapter {
         enabled: true,
       }),
       explicitlyDisabledIds: desired.disabledMcpIds,
+      existingEntries: existingServers,
+      availableEnvVars,
       isSameEntry: (key, nextEntry) => deepEqualMcpEntry(existingServers[key], nextEntry),
     });
 
@@ -89,6 +92,7 @@ export class HermesAdapter extends BaseHarnessAdapter {
         beforeText,
         afterText: beforeText,
         nextManagedMcpKeys: comp.nextManagedMcpKeys,
+        warnings: comp.warnings,
       };
     }
 
@@ -107,6 +111,7 @@ export class HermesAdapter extends BaseHarnessAdapter {
       beforeText,
       afterText,
       nextManagedMcpKeys: comp.nextManagedMcpKeys,
+      warnings: comp.warnings,
     };
   }
 }

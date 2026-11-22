@@ -935,6 +935,11 @@ export function App() {
             });
             setState(next);
           }}
+          onUpdateMcp={async (patch) => {
+            const next = await api.updateMcp(inspectedMcp.id, patch);
+            setState(next);
+            showNotice('ok', `Updated '${inspectedMcp.id}' configuration`);
+          }}
           onDelete={async () => {
             const next = await api.deleteMcp(inspectedMcp.id);
             setState(next);

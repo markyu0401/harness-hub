@@ -22,6 +22,7 @@ export interface ConfigPlanOutput {
   beforeText: string;
   afterText: string;
   nextManagedMcpKeys: string[];
+  warnings?: string[];
 }
 
 export interface ExtendedSyncPlan extends SyncPlan {
@@ -47,7 +48,8 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
   protected abstract planConfigUpdate(
     currentConfigText: string | undefined,
     desired: HarnessDesiredState,
-    managedMcpKeys: string[]
+    managedMcpKeys: string[],
+    availableEnvVars?: Set<string>
   ): ConfigPlanOutput;
 
   async detect(): Promise<HarnessDetectionResult> {
@@ -108,7 +110,13 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
       currentConfigText = undefined;
     }
 
-    const configPlan = this.planConfigUpdate(currentConfigText, desired, manifest.managedMcpKeys);
+    const availableEnvVars = await this.collectAvailableEnvVars();
+    const configPlan = this.planConfigUpdate(
+      currentConfigText,
+      desired,
+      manifest.managedMcpKeys,
+      availableEnvVars
+    );
     const actions: SyncAction[] = [
       ...symlinkPlan.operations.map((o) => o.action),
       ...configPlan.actions,
@@ -122,7 +130,7 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
       actions,
       configPreviewBefore: configPlan.changed ? configPlan.beforeText : undefined,
       configPreviewAfter: configPlan.changed ? configPlan.afterText : undefined,
-      warnings: symlinkPlan.warnings,
+      warnings: [...symlinkPlan.warnings, ...(configPlan.warnings ?? [])],
       hasChanges: hasActionableChanges || configPlan.changed,
       _internal: {
         symlinkOps: symlinkPlan.operations,
@@ -202,6 +210,30 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
 
   async verifyLive(): Promise<VerificationResult> {
     return verifyHarnessStatic(this.id, this.displayName, this.skillsDir, this.configPath);
+  }
+
+  private async collectAvailableEnvVars(): Promise<Set<string>> {
+    const keys = new Set<string>();
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined) keys.add(k);
+    }
+    if (this.id === 'hermes') {
+      try {
+        const envRaw = await fs.readFile(path.join(path.dirname(this.configPath), '.env'), 'utf8');
+        for (const line of envRaw.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const eq = trimmed.indexOf('=');
+          if (eq > 0) {
+            const varName = trimmed.slice(0, eq).replace(/^export\s+/, '').trim();
+            if (varName) keys.add(varName);
+          }
+        }
+      } catch {
+        // Optional ~/.hermes/.env may not exist
+      }
+    }
+    return keys;
   }
 }
 

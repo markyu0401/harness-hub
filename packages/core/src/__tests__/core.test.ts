@@ -553,4 +553,107 @@ describe('HarnessHub Core: Discovery, Deduplication, Secrets & Adapters', () => 
     });
     expect(removed.installed).toBe(false);
   });
+
+  it('preserves working inline secrets when env vars are unset and translates env refs per harness', async () => {
+    const home = await makeTempHome();
+    const paths = resolveHostPaths({ homeDir: home });
+
+    // 1) OpenCode originally has a working literal key; Codex does not have litellm yet
+    await fs.mkdir(path.join(home, '.config', 'opencode'), { recursive: true });
+    await fs.writeFile(
+      path.join(home, '.config', 'opencode', 'opencode.json'),
+      JSON.stringify(
+        {
+          mcp: {
+            litellm: {
+              type: 'remote',
+              url: 'http://127.0.0.1:4000/mcp',
+              headers: {
+                'x-litellm-api-key': 'Bearer sk-original-working-key-123456',
+              },
+              enabled: true,
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+    await fs.mkdir(path.join(home, '.codex'), { recursive: true });
+    await fs.writeFile(path.join(home, '.codex', 'config.toml'), 'model = "gpt-5"\n');
+
+    const registry = await discoverAndMergeRegistry(paths);
+    expect(registry.mcps[0]?.headers?.['x-litellm-api-key']).toBe('${X_LITELLM_API_KEY}');
+
+    // 2) Because X_LITELLM_API_KEY is NOT set, OpenCodeAdapter must preserve the working literal key
+    const adapters = createAdapters(paths);
+    const openCodePlan = await adapters.opencode.planSync(
+      buildDesiredStateForHarness(registry, 'opencode', { includeGateway: false })
+    );
+    expect(openCodePlan.warnings.some((w) => w.includes('X_LITELLM_API_KEY'))).toBe(true);
+    expect(openCodePlan.warnings.some((w) => w.includes('Preserved existing on-disk credentials'))).toBe(
+      true
+    );
+    await adapters.opencode.applySync(openCodePlan, paths.backupsDir);
+    const openCodeAfter = JSON.parse(
+      await fs.readFile(path.join(home, '.config', 'opencode', 'opencode.json'), 'utf8')
+    );
+    expect(openCodeAfter.mcp.litellm.headers['x-litellm-api-key']).toBe(
+      'Bearer sk-original-working-key-123456'
+    );
+
+    // 3) When env var IS set, CodexAdapter emits env_http_headers/bearer_token_env_var and OpenCode emits {env:VAR} + oauth: false
+    process.env.HARNESS_TEST_LITELLM_KEY = 'sk-env-present';
+    process.env.HARNESS_TEST_BEARER = 'tok-env-present';
+    try {
+      registry.mcps[0]!.headers = {
+        'x-litellm-api-key': '${HARNESS_TEST_LITELLM_KEY}',
+        Authorization: 'Bearer ${HARNESS_TEST_BEARER}',
+        'X-Static': 'v1',
+      };
+      registry.allocations.mcps.litellm!.codex = { enabled: true, mode: 'direct' };
+      registry.allocations.mcps.litellm!.opencode = { enabled: true, mode: 'direct' };
+
+      const codexPlan = await adapters.codex.planSync(
+        buildDesiredStateForHarness(registry, 'codex', { includeGateway: false })
+      );
+      await adapters.codex.applySync(codexPlan, paths.backupsDir);
+      const codexToml = await fs.readFile(path.join(home, '.codex', 'config.toml'), 'utf8');
+      expect(codexToml).toContain('bearer_token_env_var = "HARNESS_TEST_BEARER"');
+      expect(codexToml).toContain('x-litellm-api-key = "HARNESS_TEST_LITELLM_KEY"');
+      expect(codexToml).toContain('[mcp_servers.litellm.env_http_headers]');
+      expect(codexToml).not.toContain('${HARNESS_TEST_LITELLM_KEY}');
+
+      const ocPlan2 = await adapters.opencode.planSync(
+        buildDesiredStateForHarness(registry, 'opencode', { includeGateway: false })
+      );
+      await adapters.opencode.applySync(ocPlan2, paths.backupsDir);
+      const ocJson2 = JSON.parse(
+        await fs.readFile(path.join(home, '.config', 'opencode', 'opencode.json'), 'utf8')
+      );
+      expect(ocJson2.mcp.litellm.oauth).toBe(false);
+      expect(ocJson2.mcp.litellm.headers['x-litellm-api-key']).toBe(
+        '{env:HARNESS_TEST_LITELLM_KEY}'
+      );
+
+      // Re-scanning Codex round-trips env_http_headers + bearer_token_env_var cleanly
+      const rescanned = await discoverAndMergeRegistry(paths);
+      const codexMcp = rescanned.mcps.find((m) => m.id === 'litellm')!;
+      expect(codexMcp.headers?.['x-litellm-api-key']).toBe('${HARNESS_TEST_LITELLM_KEY}');
+      expect(codexMcp.headers?.['Authorization']).toBe('Bearer ${HARNESS_TEST_BEARER}');
+    } finally {
+      delete process.env.HARNESS_TEST_LITELLM_KEY;
+      delete process.env.HARNESS_TEST_BEARER;
+    }
+
+    // 4) resolveRuntimeSecrets supports embedded refs and throws clearly on missing env vars
+    const embedded = await resolveRuntimeSecrets(
+      { Authorization: 'Bearer op://Hermes/Demo/secret' },
+      { opReader: async () => 'sk-op-val' }
+    );
+    expect(embedded.Authorization).toBe('Bearer sk-op-val');
+    await expect(
+      resolveRuntimeSecrets({ 'x-api-key': '${DEFINITELY_MISSING_VAR_123}' }, { env: {} })
+    ).rejects.toThrow('Missing environment variable: DEFINITELY_MISSING_VAR_123');
+  });
 });

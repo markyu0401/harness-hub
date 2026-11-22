@@ -74,7 +74,22 @@ async function scanCodexMcps(configPath: string): Promise<RawDiscoveredMcp[]> {
       const command = typeof obj.command === 'string' ? obj.command : undefined;
       if (!url && !command) continue;
 
-      const headers = sanitizeRecordForStorage(asStringRecord(obj.http_headers));
+      const rawHeaders: Record<string, string> = {
+        ...(asStringRecord(obj.http_headers) ?? {}),
+      };
+      const envHttpHeaders = asStringRecord(obj.env_http_headers);
+      if (envHttpHeaders) {
+        for (const [headerName, envVarName] of Object.entries(envHttpHeaders)) {
+          rawHeaders[headerName] = `\${${envVarName}}`;
+        }
+      }
+      if (typeof obj.bearer_token_env_var === 'string' && obj.bearer_token_env_var.trim()) {
+        rawHeaders.Authorization = `Bearer \${${obj.bearer_token_env_var.trim()}}`;
+      }
+
+      const headers = sanitizeRecordForStorage(
+        Object.keys(rawHeaders).length > 0 ? rawHeaders : undefined
+      );
       const env = sanitizeRecordForStorage(asStringRecord(obj.env));
       result.push({
         id,

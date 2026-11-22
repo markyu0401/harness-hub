@@ -245,12 +245,62 @@ export const McpInspectorDrawer: React.FC<{
   onUpdateAllocation: (
     harnessId: HarnessId,
     patch: { enabled?: boolean; mode?: 'direct' | 'gateway'; disabledTools?: string[] }
-  ) => void;
+  ) => void | Promise<void>;
+  onUpdateMcp: (patch: {
+    url?: string;
+    headers?: Record<string, string>;
+    authType?: 'none' | 'oauth' | 'bearer' | 'header';
+  }) => Promise<void>;
   onDelete: () => void;
   onClose: () => void;
-}> = ({ mcp, allocations, oauthStatus, dark, onUpdateAllocation, onDelete, onClose }) => {
+}> = ({ mcp, allocations, oauthStatus, dark, onUpdateAllocation, onUpdateMcp, onDelete, onClose }) => {
   const borderClass = dark ? 'border-zinc-800' : 'border-zinc-200';
   const mutedText = dark ? 'text-zinc-400' : 'text-zinc-600';
+  const [editingSecret, setEditingSecret] = useState(false);
+  const [urlDraft, setUrlDraft] = useState(mcp.url ?? '');
+  const [headerRows, setHeaderRows] = useState<Array<{ key: string; value: string }>>(() =>
+    Object.entries(mcp.headers ?? {}).map(([key, value]) => ({ key, value }))
+  );
+  const [savingMcp, setSavingMcp] = useState(false);
+
+  const hasSecretRefs =
+    mcp.authType !== 'none' ||
+    Object.values(mcp.headers ?? {}).some((v) => v.includes('op://') || v.includes('${')) ||
+    Object.values(mcp.env ?? {}).some((v) => v.includes('op://') || v.includes('${'));
+  const enabledDirectHarnesses = HARNESS_META.filter(
+    (h) => allocations[h.id]?.enabled && (allocations[h.id]?.mode ?? 'direct') === 'direct'
+  );
+
+  const handleRouteAllEnabledViaGateway = async () => {
+    setSavingMcp(true);
+    try {
+      for (const h of enabledDirectHarnesses) {
+        await onUpdateAllocation(h.id, { mode: 'gateway' });
+      }
+    } finally {
+      setSavingMcp(false);
+    }
+  };
+
+  const handleSaveMcp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingMcp(true);
+    try {
+      const nextHeaders: Record<string, string> = {};
+      for (const row of headerRows) {
+        const k = row.key.trim();
+        const v = row.value.trim();
+        if (k && v) nextHeaders[k] = v;
+      }
+      await onUpdateMcp({
+        url: mcp.transport !== 'stdio' ? urlDraft.trim() || undefined : undefined,
+        headers: mcp.transport !== 'stdio' ? nextHeaders : undefined,
+      });
+      setEditingSecret(false);
+    } finally {
+      setSavingMcp(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs">
@@ -281,24 +331,155 @@ export const McpInspectorDrawer: React.FC<{
               dark ? 'border-zinc-800 bg-zinc-900/60' : 'border-zinc-200 bg-zinc-50'
             }`}
           >
-            <div className={`font-medium ${mutedText}`}>Endpoint / Command</div>
-            <div className="mt-1 break-all font-mono">
-              {mcp.url || [mcp.command, ...(mcp.args ?? [])].join(' ')}
+            <div className="flex items-center justify-between gap-2">
+              <div className={`font-medium ${mutedText}`}>Endpoint / Command</div>
+              {mcp.transport !== 'stdio' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUrlDraft(mcp.url ?? '');
+                    setHeaderRows(
+                      Object.entries(mcp.headers ?? {}).map(([key, value]) => ({ key, value }))
+                    );
+                    setEditingSecret((v) => !v);
+                  }}
+                  className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                    dark
+                      ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
+                      : 'bg-zinc-200 text-zinc-800 hover:bg-zinc-300'
+                  }`}
+                >
+                  {editingSecret ? 'Cancel Edit' : 'Edit Endpoint & Secret Refs'}
+                </button>
+              )}
             </div>
-            {(mcp.headers || mcp.env) && (
-              <div className="mt-3 space-y-1">
-                <div className={`inline-flex items-center gap-1 font-medium ${mutedText}`}>
-                  <Lock className="h-3 w-3" /> Secret References (Masked)
+            {editingSecret ? (
+              <form onSubmit={handleSaveMcp} className="mt-2 space-y-2.5">
+                <div>
+                  <label className={`block text-[11px] font-medium ${mutedText}`}>URL</label>
+                  <input
+                    value={urlDraft}
+                    onChange={(e) => setUrlDraft(e.target.value)}
+                    className={`mt-1 w-full rounded-md border px-2.5 py-1.5 font-mono text-[11px] ${
+                      dark
+                        ? 'border-zinc-700 bg-zinc-950 text-zinc-100'
+                        : 'border-zinc-300 bg-white text-zinc-900'
+                    }`}
+                  />
                 </div>
-                {Object.entries({ ...(mcp.headers ?? {}), ...(mcp.env ?? {}) }).map(([k, v]) => (
-                  <div key={k} className={`font-mono text-[11px] ${mutedText}`}>
-                    {k}:{' '}
-                    <span className={dark ? 'text-amber-400' : 'text-amber-700'}>{v}</span>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[11px] font-medium ${mutedText}`}>
+                      HTTP Headers (use op://Vault/Item/Field or {'${ENV_VAR}'})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setHeaderRows((r) => [...r, { key: '', value: '' }])}
+                      className={`text-[11px] font-medium ${
+                        dark ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600'
+                      }`}
+                    >
+                      + Add Header
+                    </button>
                   </div>
-                ))}
-              </div>
+                  {headerRows.map((row, idx) => (
+                    <div key={idx} className="flex items-center gap-1.5">
+                      <input
+                        placeholder="Header name"
+                        value={row.key}
+                        onChange={(e) =>
+                          setHeaderRows((rows) =>
+                            rows.map((r, i) => (i === idx ? { ...r, key: e.target.value } : r))
+                          )
+                        }
+                        className={`w-2/5 rounded-md border px-2 py-1 font-mono text-[11px] ${
+                          dark
+                            ? 'border-zinc-700 bg-zinc-950 text-zinc-100'
+                            : 'border-zinc-300 bg-white text-zinc-900'
+                        }`}
+                      />
+                      <input
+                        placeholder="op://Hermes/Item/field"
+                        value={row.value}
+                        onChange={(e) =>
+                          setHeaderRows((rows) =>
+                            rows.map((r, i) => (i === idx ? { ...r, value: e.target.value } : r))
+                          )
+                        }
+                        className={`flex-1 rounded-md border px-2 py-1 font-mono text-[11px] ${
+                          dark
+                            ? 'border-zinc-700 bg-zinc-950 text-zinc-100'
+                            : 'border-zinc-300 bg-white text-zinc-900'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setHeaderRows((rows) => rows.filter((_, i) => i !== idx))}
+                        className={`rounded p-1 ${mutedText} hover:text-rose-400`}
+                        aria-label="Remove header"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingMcp}
+                    className="rounded-md bg-indigo-600 px-3 py-1 text-[11px] font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+                  >
+                    {savingMcp ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <div className="mt-1 break-all font-mono">
+                  {mcp.url || [mcp.command, ...(mcp.args ?? [])].join(' ')}
+                </div>
+                {(mcp.headers || mcp.env) && (
+                  <div className="mt-3 space-y-1">
+                    <div className={`inline-flex items-center gap-1 font-medium ${mutedText}`}>
+                      <Lock className="h-3 w-3" /> Secret References (Masked)
+                    </div>
+                    {Object.entries({ ...(mcp.headers ?? {}), ...(mcp.env ?? {}) }).map(([k, v]) => (
+                      <div key={k} className={`font-mono text-[11px] ${mutedText}`}>
+                        {k}:{' '}
+                        <span className={dark ? 'text-amber-400' : 'text-amber-700'}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
+
+          {hasSecretRefs && enabledDirectHarnesses.length > 0 && (
+            <div
+              className={`rounded-xl border p-3.5 text-xs ${
+                dark
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+                  : 'border-amber-300 bg-amber-50 text-amber-900'
+              }`}
+            >
+              <div className="font-semibold">Recommended: Route via Hub Gateway</div>
+              <p className="mt-1 text-[11px]">
+                {enabledDirectHarnesses.map((h) => h.name).join(', ')} currently use{' '}
+                <strong>Direct Config</strong>. Route through <strong>Hub Gateway</strong> so
+                HarnessHub resolves secret references centrally without writing credentials or
+                unexpanded placeholders into client configs.
+              </p>
+              <button
+                type="button"
+                disabled={savingMcp}
+                onClick={() => void handleRouteAllEnabledViaGateway()}
+                className="mt-2 rounded-md bg-amber-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+              >
+                Switch Enabled Harnesses to Hub Gateway
+              </button>
+            </div>
+          )}
 
           {oauthStatus?.present && (
             <div
@@ -623,7 +804,7 @@ export const ApplyConfirmModal: React.FC<{
           </p>
           {HARNESS_META.map((h) => {
             const plan = state.plans[h.id];
-            if (!plan || plan.actions.length === 0) return null;
+            if (!plan || (plan.actions.length === 0 && plan.warnings.length === 0)) return null;
             return (
               <div
                 key={h.id}
@@ -632,11 +813,24 @@ export const ApplyConfirmModal: React.FC<{
                 }`}
               >
                 <div className="font-semibold">{h.name}</div>
-                <ul className={`mt-1.5 space-y-1 ${mutedText}`}>
-                  {plan.actions.map((a, idx) => (
-                    <li key={idx}>• {a.summary}</li>
-                  ))}
-                </ul>
+                {plan.actions.length > 0 && (
+                  <ul className={`mt-1.5 space-y-1 ${mutedText}`}>
+                    {plan.actions.map((a, idx) => (
+                      <li key={idx}>• {a.summary}</li>
+                    ))}
+                  </ul>
+                )}
+                {plan.warnings.length > 0 && (
+                  <ul
+                    className={`mt-2 space-y-1 text-[11px] ${
+                      dark ? 'text-amber-300' : 'text-amber-800'
+                    }`}
+                  >
+                    {plan.warnings.map((w, idx) => (
+                      <li key={idx}>⚠ {w}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             );
           })}

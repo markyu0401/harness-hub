@@ -91,6 +91,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  updateMcp: (
+    id: string,
+    patch: {
+      url?: string;
+      headers?: Record<string, string>;
+      env?: Record<string, string>;
+      authType?: 'none' | 'oauth' | 'bearer' | 'header';
+    }
+  ) =>
+    request<HubStatePayload>(`/api/mcps/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
   deleteMcp: (id: string) =>
     request<HubStatePayload>(`/api/mcps/${encodeURIComponent(id)}`, {
       method: 'DELETE',

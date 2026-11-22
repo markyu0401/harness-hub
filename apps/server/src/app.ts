@@ -14,6 +14,8 @@ import {
   discoverAndMergeRegistry,
   getHermesOAuthStatus,
   getServiceStatus,
+  hasOpReferences,
+  hasSecretBackedAuth,
   hashPasscode,
   installBackgroundService,
   listBackupSnapshots,
@@ -457,12 +459,23 @@ export async function createHarnessHubApp(options: CreateAppOptions = {}): Promi
 
     const row = { ...(registry.allocations.mcps[mcpId] ?? {}) };
     const prev = row[harnessId] ?? { enabled: false, mode: 'direct' as const };
-    // For OAuth MCPs backed by Hermes default profile, auto-route non-Hermes harnesses via Hub Gateway
+    // Auto-route secret-backed MCPs (OAuth, op://, Antigravity headers, or cross-harness bearer/header MCPs) via Hub Gateway
     let nextMode = mode ?? prev.mode;
-    if (mode === undefined && !prev.enabled && enabled === true && harnessId !== 'hermes') {
-      const hermesOAuth = await getHermesOAuthStatus(mcpId, paths.homeDir);
-      if (mcpItem.authType === 'oauth' || hermesOAuth.present) {
+    if (mode === undefined && !prev.enabled && enabled === true) {
+      const usesOpRef = hasOpReferences(mcpItem.headers) || hasOpReferences(mcpItem.env);
+      const needsGatewayForHarness =
+        usesOpRef ||
+        (harnessId === 'antigravity' && hasSecretBackedAuth(mcpItem)) ||
+        ((mcpItem.authType === 'bearer' || mcpItem.authType === 'header') &&
+          !mcpItem.discoveredIn.includes(harnessId));
+
+      if (needsGatewayForHarness) {
         nextMode = 'gateway';
+      } else if (harnessId !== 'hermes') {
+        const hermesOAuth = await getHermesOAuthStatus(mcpId, paths.homeDir);
+        if (mcpItem.authType === 'oauth' || hermesOAuth.present) {
+          nextMode = 'gateway';
+        }
       }
     }
     row[harnessId] = {
@@ -527,12 +540,14 @@ export async function createHarnessHubApp(options: CreateAppOptions = {}): Promi
     }
     const current = registry.mcps[idx]!;
     const patch = parsed.data;
+    const nextHeaders = patch.headers ? sanitizeRecordForStorage(patch.headers) : current.headers;
+    const nextEnv = patch.env ? sanitizeRecordForStorage(patch.env) : current.env;
     registry.mcps[idx] = {
       ...current,
       ...patch,
       id: current.id,
-      headers: patch.headers ? sanitizeRecordForStorage(patch.headers) : current.headers,
-      env: patch.env ? sanitizeRecordForStorage(patch.env) : current.env,
+      headers: nextHeaders && Object.keys(nextHeaders).length > 0 ? nextHeaders : undefined,
+      env: nextEnv && Object.keys(nextEnv).length > 0 ? nextEnv : undefined,
     };
     await saveRegistry(paths.registryPath, registry);
     return buildStatePayload();

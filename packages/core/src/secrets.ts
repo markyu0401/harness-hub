@@ -8,14 +8,103 @@ const execFileAsync = promisify(execFile);
 
 const SECRET_KEY_PATTERN = /(token|secret|key|password|passwd|auth|bearer|cookie|credential)/i;
 const SECRET_VALUE_PATTERN = /^(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|ops_[A-Za-z0-9]{20,}|xox[baprs]-|Bearer\s+\S{12,})/i;
-const ENV_REF_PATTERN = /^\$\{([A-Z0-9_]+)\}$/;
-const OP_REF_PATTERN = /^op:\/\/.+/;
+const ENV_REF_EXACT_PATTERN = /^\$\{([A-Z0-9_]+)\}$/;
+const ENV_REF_TEST_PATTERN = /\$\{([A-Z0-9_]+)\}/;
+const ENV_REF_GLOBAL_PATTERN = /\$\{([A-Z0-9_]+)\}/g;
+const OPENCODE_ENV_TEST_PATTERN = /\{env:([A-Z0-9_]+)\}/;
+const OPENCODE_ENV_GLOBAL_PATTERN = /\{env:([A-Z0-9_]+)\}/g;
+const OP_REF_TEST_PATTERN = /op:\/\/[^\s"']+/;
+const OP_REF_GLOBAL_PATTERN = /op:\/\/[^\s"']+/g;
+
+/**
+ * Normalize OpenCode `{env:VAR}` syntax into canonical `${VAR}` references.
+ */
+export function normalizeSecretReference(value: string): string {
+  return value.replace(OPENCODE_ENV_GLOBAL_PATTERN, (_, varName: string) => `\${${varName}}`);
+}
+
+/**
+ * Convert canonical `${VAR}` references into OpenCode `{env:VAR}` syntax.
+ */
+export function formatValueForOpenCode(value: string): string {
+  return value.replace(ENV_REF_GLOBAL_PATTERN, (_, varName: string) => `{env:${varName}}`);
+}
+
+/**
+ * Convert all string entries in a record to OpenCode `{env:VAR}` syntax.
+ */
+export function formatRecordForOpenCode(
+  record: Record<string, string> | undefined
+): Record<string, string> | undefined {
+  if (!record) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(record)) {
+    out[key] = formatValueForOpenCode(value);
+  }
+  return out;
+}
+
+/**
+ * Extract an exact `${VAR}` or `{env:VAR}` variable name if the entire string is a single env ref.
+ */
+export function extractExactEnvVarName(value: string): string | undefined {
+  const normalized = normalizeSecretReference(value.trim());
+  const match = ENV_REF_EXACT_PATTERN.exec(normalized);
+  return match?.[1];
+}
+
+/**
+ * Extract all `${VAR}` / `{env:VAR}` environment variable names referenced across a record.
+ */
+export function extractEnvVarReferences(record: Record<string, string> | undefined): string[] {
+  if (!record) return [];
+  const vars = new Set<string>();
+  for (const value of Object.values(record)) {
+    const normalized = normalizeSecretReference(value);
+    for (const match of normalized.matchAll(ENV_REF_GLOBAL_PATTERN)) {
+      if (match[1]) vars.add(match[1]);
+    }
+  }
+  return Array.from(vars).sort();
+}
+
+/**
+ * Check whether any entry in a record contains a 1Password `op://` reference.
+ */
+export function hasOpReferences(record: Record<string, string> | undefined): boolean {
+  if (!record) return false;
+  return Object.values(record).some((value) => OP_REF_TEST_PATTERN.test(value));
+}
+
+/**
+ * Determine if an MCP server item relies on secret references or OAuth credentials.
+ */
+export function hasSecretBackedAuth(item: {
+  authType?: string;
+  headers?: Record<string, string>;
+  env?: Record<string, string>;
+}): boolean {
+  if (item.authType && item.authType !== 'none') return true;
+  if (hasOpReferences(item.headers) || hasOpReferences(item.env)) return true;
+  if (
+    extractEnvVarReferences(item.headers).length > 0 ||
+    extractEnvVarReferences(item.env).length > 0
+  ) {
+    return true;
+  }
+  return false;
+}
 
 /**
  * Determine if a reference string is a safe secret reference rather than a raw literal.
  */
 export function isSecretReference(value: string): boolean {
-  return OP_REF_PATTERN.test(value.trim()) || ENV_REF_PATTERN.test(value.trim());
+  const trimmed = value.trim();
+  return (
+    OP_REF_TEST_PATTERN.test(trimmed) ||
+    ENV_REF_TEST_PATTERN.test(trimmed) ||
+    OPENCODE_ENV_TEST_PATTERN.test(trimmed)
+  );
 }
 
 /**
@@ -29,8 +118,16 @@ export function isSensitiveEntry(key: string, value: string): boolean {
 }
 
 /**
+ * Check whether a plain config record contains any unredacted inline secret literal.
+ */
+export function recordHasInlineSecret(record: Record<string, string> | undefined): boolean {
+  if (!record) return false;
+  return Object.entries(record).some(([key, value]) => isSensitiveEntry(key, value));
+}
+
+/**
  * Redact inline secret values when importing or returning configs to the UI/logs.
- * Preserves `op://Vault/Item/Field` and `${ENV_VAR}` references intact.
+ * Preserves `op://Vault/Item/Field` and `${ENV_VAR}` (including embedded & `{env:VAR}`) references.
  */
 export function sanitizeRecordForStorage(
   record: Record<string, string> | undefined
@@ -39,7 +136,7 @@ export function sanitizeRecordForStorage(
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(record)) {
     if (isSecretReference(value)) {
-      out[key] = value;
+      out[key] = normalizeSecretReference(value);
     } else if (isSensitiveEntry(key, value)) {
       const envCandidate = key.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
       out[key] = `\${${envCandidate}}`;
@@ -96,22 +193,33 @@ export async function resolveRuntimeSecrets(
   const env = options?.env ?? process.env;
   const opReader = options?.opReader ?? defaultOpReader;
   const resolved: Record<string, string> = {};
+  const opCache = new Map<string, string>();
 
   for (const [key, rawValue] of Object.entries(record)) {
-    const trimmed = rawValue.trim();
-    if (OP_REF_PATTERN.test(trimmed)) {
-      resolved[key] = await opReader(trimmed);
-      continue;
-    }
-    const envMatch = ENV_REF_PATTERN.exec(trimmed);
-    if (envMatch && envMatch[1]) {
-      const envVal = env[envMatch[1]];
-      if (envVal !== undefined) {
-        resolved[key] = envVal;
+    let nextValue = normalizeSecretReference(rawValue);
+
+    const opMatches = Array.from(nextValue.matchAll(OP_REF_GLOBAL_PATTERN)).map((m) => m[0]);
+    for (const opRef of opMatches) {
+      let secretVal = opCache.get(opRef);
+      if (secretVal === undefined) {
+        secretVal = await opReader(opRef);
+        opCache.set(opRef, secretVal);
       }
-      continue;
+      nextValue = nextValue.replace(opRef, secretVal);
     }
-    resolved[key] = rawValue;
+
+    const envMatches = Array.from(nextValue.matchAll(ENV_REF_GLOBAL_PATTERN));
+    for (const envMatch of envMatches) {
+      const varName = envMatch[1];
+      if (!varName) continue;
+      const envVal = env[varName];
+      if (envVal === undefined) {
+        throw new Error(`Missing environment variable: ${varName}`);
+      }
+      nextValue = nextValue.replace(envMatch[0], envVal);
+    }
+
+    resolved[key] = nextValue;
   }
 
   return resolved;

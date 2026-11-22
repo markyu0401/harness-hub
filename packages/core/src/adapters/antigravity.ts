@@ -48,7 +48,8 @@ export class AntigravityAdapter extends BaseHarnessAdapter {
   protected planConfigUpdate(
     currentConfigText: string | undefined,
     desired: HarnessDesiredState,
-    managedMcpKeys: string[]
+    managedMcpKeys: string[],
+    availableEnvVars?: Set<string>
   ): ConfigPlanOutput {
     const beforeText = currentConfigText ?? '';
     const parsed: Record<string, unknown> = beforeText.trim()
@@ -71,6 +72,8 @@ export class AntigravityAdapter extends BaseHarnessAdapter {
         serverUrl: gw.url,
       }),
       explicitlyDisabledIds: desired.disabledMcpIds,
+      existingEntries: existingServers,
+      availableEnvVars,
       isSameEntry: (key, nextEntry) => deepEqualMcpEntry(existingServers[key], nextEntry),
     });
 
@@ -81,6 +84,7 @@ export class AntigravityAdapter extends BaseHarnessAdapter {
         beforeText,
         afterText: beforeText,
         nextManagedMcpKeys: comp.nextManagedMcpKeys,
+        warnings: comp.warnings,
       };
     }
 
@@ -100,6 +104,7 @@ export class AntigravityAdapter extends BaseHarnessAdapter {
       beforeText,
       afterText,
       nextManagedMcpKeys: comp.nextManagedMcpKeys,
+      warnings: comp.warnings,
     };
   }
 }

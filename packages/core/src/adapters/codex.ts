@@ -1,4 +1,5 @@
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+import { extractExactEnvVarName, normalizeSecretReference } from '../secrets.js';
 import { BaseHarnessAdapter, type ConfigPlanOutput } from './base-adapter.js';
 import {
   computeMcpConfigActions,
@@ -15,7 +16,30 @@ function buildCodexEntry(entry: DesiredMcpEntry): Record<string, unknown> {
   if (item.url) {
     out.url = item.url;
     if (item.headers && Object.keys(item.headers).length > 0) {
-      out.http_headers = item.headers;
+      const staticHeaders: Record<string, string> = {};
+      const envHttpHeaders: Record<string, string> = {};
+      for (const [headerName, rawVal] of Object.entries(item.headers)) {
+        const normalized = normalizeSecretReference(rawVal.trim());
+        if (headerName.toLowerCase() === 'authorization') {
+          const bearerMatch = /^Bearer\s+\$\{([A-Z0-9_]+)\}$/i.exec(normalized);
+          if (bearerMatch?.[1]) {
+            out.bearer_token_env_var = bearerMatch[1];
+            continue;
+          }
+        }
+        const exactEnvVar = extractExactEnvVarName(normalized);
+        if (exactEnvVar) {
+          envHttpHeaders[headerName] = exactEnvVar;
+          continue;
+        }
+        staticHeaders[headerName] = rawVal;
+      }
+      if (Object.keys(staticHeaders).length > 0) {
+        out.http_headers = staticHeaders;
+      }
+      if (Object.keys(envHttpHeaders).length > 0) {
+        out.env_http_headers = envHttpHeaders;
+      }
     }
   } else if (item.command) {
     out.command = item.command;
@@ -64,7 +88,8 @@ export class CodexAdapter extends BaseHarnessAdapter {
   protected planConfigUpdate(
     currentConfigText: string | undefined,
     desired: HarnessDesiredState,
-    managedMcpKeys: string[]
+    managedMcpKeys: string[],
+    availableEnvVars?: Set<string>
   ): ConfigPlanOutput {
     const beforeText = currentConfigText ?? '';
     const parsed: Record<string, unknown> = beforeText.trim()
@@ -85,6 +110,8 @@ export class CodexAdapter extends BaseHarnessAdapter {
       buildEntry: buildCodexEntry,
       buildGatewayEntry: (gw) => ({ url: gw.url }),
       explicitlyDisabledIds: desired.disabledMcpIds,
+      existingEntries: existingServers,
+      availableEnvVars,
       isSameEntry: (key, nextEntry) => deepEqualMcpEntry(existingServers[key], nextEntry),
     });
 
@@ -95,6 +122,7 @@ export class CodexAdapter extends BaseHarnessAdapter {
         beforeText,
         afterText: beforeText,
         nextManagedMcpKeys: comp.nextManagedMcpKeys,
+        warnings: comp.warnings,
       };
     }
 
@@ -114,6 +142,7 @@ export class CodexAdapter extends BaseHarnessAdapter {
       beforeText,
       afterText,
       nextManagedMcpKeys: comp.nextManagedMcpKeys,
+      warnings: comp.warnings,
     };
   }
 }

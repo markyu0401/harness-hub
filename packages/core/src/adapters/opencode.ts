@@ -1,3 +1,4 @@
+import { formatRecordForOpenCode, hasSecretBackedAuth } from '../secrets.js';
 import { BaseHarnessAdapter, type ConfigPlanOutput } from './base-adapter.js';
 import {
   computeMcpConfigActions,
@@ -15,7 +16,10 @@ function buildOpenCodeEntry(entry: DesiredMcpEntry): Record<string, unknown> {
       enabled: true,
     };
     if (item.headers && Object.keys(item.headers).length > 0) {
-      out.headers = item.headers;
+      out.headers = formatRecordForOpenCode(item.headers);
+      if (hasSecretBackedAuth(item)) {
+        out.oauth = false;
+      }
     }
     return out;
   }
@@ -26,7 +30,7 @@ function buildOpenCodeEntry(entry: DesiredMcpEntry): Record<string, unknown> {
     enabled: true,
   };
   if (item.env && Object.keys(item.env).length > 0) {
-    out.environment = item.env;
+    out.environment = formatRecordForOpenCode(item.env);
   }
   return out;
 }
@@ -51,7 +55,8 @@ export class OpenCodeAdapter extends BaseHarnessAdapter {
   protected planConfigUpdate(
     currentConfigText: string | undefined,
     desired: HarnessDesiredState,
-    managedMcpKeys: string[]
+    managedMcpKeys: string[],
+    availableEnvVars?: Set<string>
   ): ConfigPlanOutput {
     const beforeText = currentConfigText ?? '';
     const parsed: Record<string, unknown> = beforeText.trim()
@@ -76,6 +81,8 @@ export class OpenCodeAdapter extends BaseHarnessAdapter {
         enabled: true,
       }),
       explicitlyDisabledIds: desired.disabledMcpIds,
+      existingEntries: existingMcp,
+      availableEnvVars,
       isSameEntry: (key, nextEntry) => deepEqualMcpEntry(existingMcp[key], nextEntry),
     });
 
@@ -86,6 +93,7 @@ export class OpenCodeAdapter extends BaseHarnessAdapter {
         beforeText,
         afterText: beforeText,
         nextManagedMcpKeys: comp.nextManagedMcpKeys,
+        warnings: comp.warnings,
       };
     }
 
@@ -105,6 +113,7 @@ export class OpenCodeAdapter extends BaseHarnessAdapter {
       beforeText,
       afterText,
       nextManagedMcpKeys: comp.nextManagedMcpKeys,
+      warnings: comp.warnings,
     };
   }
 }
