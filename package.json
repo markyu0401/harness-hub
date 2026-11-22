@@ -1,0 +1,31 @@
+{
+  "name": "harness-hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first multi-agent Skill & MCP control plane for Codex, OpenCode, Antigravity, and Hermes",
+  "license": "MIT",
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "scripts": {
+    "build": "pnpm --filter @harness-hub/core build && pnpm --filter @harness-hub/skills-mcp build && pnpm --filter @harness-hub/web build && pnpm --filter @harness-hub/server build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "dev:server": "pnpm --filter @harness-hub/server dev",
+    "dev:web": "pnpm --filter @harness-hub/web dev",
+    "start": "node apps/server/dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.5"
+  }
+}
