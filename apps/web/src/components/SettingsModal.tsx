@@ -348,9 +348,23 @@ export const SettingsModal: React.FC<{
                   </button>
                 )}
               </div>
+              {typeof window !== 'undefined' && !window.isSecureContext && (
+                <div
+                  className={`rounded-lg border px-3 py-2 text-[11px] ${
+                    dark
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                      : 'border-amber-300 bg-amber-50 text-amber-900'
+                  }`}
+                >
+                  You are viewing over plain HTTP ({window.location.origin}). Chrome requires HTTPS
+                  (e.g. <code>tailscale serve --bg --https=9446 http://127.0.0.1:{data.runtime.listeningPort}</code>) or{' '}
+                  <code>http://127.0.0.1</code> for the 1-click Install button.
+                </div>
+              )}
               <p className={`text-[11px] ${mutedText}`}>
-                Launch HarnessHub from your MacBook Dock or Spotlight without typing ports:
-                in Chrome click <strong>⋮ → Cast, save, and share → Install page as app</strong> (or use a Tailscale HTTPS URL for 1-click install).
+                Launch HarnessHub from your Dock or Spotlight without typing ports:
+                open via HTTPS / <code>127.0.0.1</code> and click <strong>Install App</strong> (or Chrome menu{' '}
+                <strong>⋮ → Cast, save, and share → Install page as app</strong>).
               </p>
             </div>
 

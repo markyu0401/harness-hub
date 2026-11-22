@@ -94,7 +94,12 @@ You can also override directories and binding via environment variables:
 
 HarnessHub ships with a web app manifest and service worker so you do not need to bookmark localhost ports:
 
-1. Open HarnessHub in **Google Chrome** or **Microsoft Edge** (`http://127.0.0.1:4310/` or your Tailscale/LAN URL).
+1. Open HarnessHub in **Google Chrome** or **Microsoft Edge** over a **secure context** (`http://127.0.0.1:4310/` locally, or an **HTTPS** URL when connecting remotely).
+   > **Note for remote laptops**: Browsers disable Service Workers and the automatic **Install App** prompt on plain `http://<LAN-or-Tailscale-IP>:4310`. If you run HarnessHub on a Mac mini / Linux server, expose it over Tailscale HTTPS:
+   > ```bash
+   > tailscale serve --bg --https=9446 http://127.0.0.1:4310
+   > ```
+   > Then open `https://<your-machine>.ts.net:9446/` on your laptop!
 2. Click the **Install App** button in the top bar (or open Chrome's menu → **Cast, save, and share** → **Install page as app...**).
 3. Launch **HarnessHub** directly from your macOS Applications folder / Dock / Linux app launcher.
 
