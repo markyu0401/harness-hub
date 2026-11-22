@@ -20,6 +20,7 @@
     "test": "vitest run",
     "dev:server": "pnpm --filter @harness-hub/server dev",
     "dev:web": "pnpm --filter @harness-hub/web dev",
+    "demo": "node scripts/demo.mjs",
     "start": "node apps/server/dist/cli.js"
   },
   "devDependencies": {
