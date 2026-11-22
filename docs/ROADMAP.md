@@ -61,4 +61,4 @@ This roadmap breaks the project into 4 concrete milestones so every phase produc
 - [x] **M4.1** `launchd` (macOS) / `systemd` (Linux) background service installer (`harness-hub service install`)
 - [x] **M4.2** Consolidation wizard (helps clean up scattered duplicate skills into a single canonical pool safely)
 - [ ] **M4.3** `Claude Code` & `Cursor` adapters
-- [ ] **M4.4** `v0.1.0` GitHub Release, demo GIF/screenshots, and comprehensive setup guide
+- [x] **M4.4** Demo GIF/screenshots, isolated English demo sandbox (`pnpm demo`), and comprehensive setup guide (`docs/SETUP.md`) — `v0.1.0` Release tag pending M4.3

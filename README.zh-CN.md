@@ -3,7 +3,7 @@
 > **面向多 Agent Harness 的可视化能力中枢（Skills + MCP 工具中转站）**  
 > 告别在 `~/.codex`、`~/.config/opencode`、`~/.hermes`、`~/.claude`、`~/.gemini` 之间来回翻文件夹和手敲软链。在一个网页界面里统一盘点、点击或拖拽分配，并一键验证各 Harness 是否真实生效。
 
-[English](README.md) · [产品需求文档 (PRD)](docs/PRD.md) · [技术架构](docs/ARCHITECTURE.md) · [开发路线图](docs/ROADMAP.md) · [架构决策 ADR-001](docs/adr/001-dual-channel-skill-distribution-and-mcp-compatibility.md)
+[English](README.md) · [配置指南 (英文)](docs/SETUP.md) · [产品需求文档 (PRD)](docs/PRD.md) · [技术架构](docs/ARCHITECTURE.md) · [开发路线图](docs/ROADMAP.md) · [架构决策 ADR-001](docs/adr/001-dual-channel-skill-distribution-and-mcp-compatibility.md)
 
 ---
 
@@ -21,22 +21,32 @@
 
 ---
 
-## 我们想做到什么样的体验？
+## 核心体验
 
 **像用“能力中转站”一样简单，让用户完全忘记底层路径和协议差异：**
 
-1. **Skill / MCP 视角**：打开网页就能看到全机自动去重归纳好的所有 Skill 和 MCP；每行后面一排 Harness 开关（`Codex` / `OpenCode` / `Antigravity` / `Hermes`），**点一下或拖进去就分配，再点一下就收回**。
-2. **Harness 视角**：点开任意一个 Harness 卡片，一眼看到它当前拥有哪些 Skill 和 MCP，直接拖拽增删。
-3. **底层自动全包（无感双通道）**：用户无需纠结“软链”还是“MCP 协议”——应用变更时，系统自动完成各家原生目录同步、统一 MCP 网关下发与安全检查。
-4. **绿灯真实校验**：一键触发各家无头探针，直接显示实际加载到的 MCP 工具数和 Skill 数量，告别盲猜。
+1. **Skill / MCP 视角**：打开网页就能看到全机自动去重归纳好的所有 Skill（带原生归属标记，如 `Native: Hermes` / `Native: Codex` / `Shared Pool`）与 MCP 服务；点击开关或直接拖拽即可完成分配与收回。
+2. **Harness 视角**：点开任意一个 Harness 卡片，一眼看到它当前拥有哪些 Skill 和 MCP，直接勾选增删或查看细粒度工具开关。
+3. **一键整理与单真身去重**：内置 Skill 库整理向导，安全归并散落副本到共享池 `~/.agents/skills`、拍平多层套娃软链为一跳直连，并保留完整撤销归档。
+4. **OAuth 凭证复用与绿灯真实校验**：支持复用 Hermes 默认 OAuth 登录态跨端下发，并一键触发无头探针验证 MCP 工具数、软链完整度与 `codex app-server` 真实加载状态。
 
 ---
 
 ## 项目阶段
 
-当前已完成 **M1–M3 可运行原型（发现引擎 + 四端适配器 + 拖拽矩阵 Web UI + 内置 MCP 网关与探针校验）**，后续将推进 **M4 后台守护进程与向导完善**。详见 [ROADMAP.md](docs/ROADMAP.md)。
+已完成 **M0–M3 与 M4.1–M4.2**（发现引擎 + 四端适配器 + 拖拽矩阵 Web UI + 内置 MCP 网关与探针校验 + `launchd`/`systemd` 常驻守护 + 一键整理向导 + PWA 桌面应用安装 + 英文 Demo 沙盒与文档）。剩余待办为 **M4.3 Claude Code / Cursor 适配器**，详见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
-### 快速启动
+### 零风险体验 Demo 沙盒
+
+不影响本机真实配置，直接在临时目录启动全隔离演练环境：
+
+```bash
+pnpm install
+pnpm build
+pnpm demo
+```
+
+### 本机安装与常驻启动
 
 ```bash
 pnpm install
@@ -51,7 +61,3 @@ node apps/server/dist/cli.js service install
 ```
 
 打开网页后，可通过 Chrome **将网页安装为应用** 一键做成独立桌面 App，无需每次输入端口。
-
-## 开源协议
-
-[MIT](LICENSE) © 2026 markyu0401
