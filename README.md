@@ -1,5 +1,7 @@
 # HarnessHub
 
+[![M8ven Verified](https://m8ven.ai/badge/mcp/markyu0401-harness-hub-kjmhzz?variant=verified&v=0b493496cfd909140f0c5eb8deda508e)](https://m8ven.ai/mcp/markyu0401-harness-hub-kjmhzz?s=readme)
+
 > **The visual control plane for your AI coding agents' Skills, MCP servers, and Rules.**  
 > Stop hunting through `~/.codex`, `~/.config/opencode`, `~/.hermes`, `~/.claude`, and `~/.gemini` to maintain fragile symlinks and duplicate configs. Manage once, assign with a click or drag-and-drop, and verify live readiness across every agent harness.
 
