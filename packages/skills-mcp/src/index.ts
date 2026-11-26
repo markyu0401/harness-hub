@@ -101,6 +101,12 @@ export function createSkillsMcpServer(provider: SkillProvider): McpServer {
     name: 'harness-skills',
     version: '0.1.0',
   });
+  const annotations = {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  };
 
   server.tool(
     'list_skills',
@@ -109,6 +115,7 @@ export function createSkillsMcpServer(provider: SkillProvider): McpServer {
       category: z.string().optional().describe('Filter skills by category name'),
       limit: z.number().int().min(1).max(200).optional().describe('Max skills to return (default 50)'),
     },
+    annotations,
     async ({ category, limit }) => {
       const skills = await provider.getSkills();
       const filtered = category
@@ -140,6 +147,7 @@ export function createSkillsMcpServer(provider: SkillProvider): McpServer {
       query: z.string().min(1).describe('Search query keywords'),
       limit: z.number().int().min(1).max(50).optional().describe('Max matches to return (default 15)'),
     },
+    annotations,
     async ({ query, limit }) => {
       const skills = await provider.getSkills();
       const matches = filterAndRankSkills(skills, query, limit ?? 15).map((s) => ({
@@ -166,6 +174,7 @@ export function createSkillsMcpServer(provider: SkillProvider): McpServer {
     {
       id: z.string().min(1).describe('Skill id or exact name'),
     },
+    annotations,
     async ({ id }) => {
       const skills = await provider.getSkills();
       const { skill, markdown, attachmentPaths } = await readSkillContent(skills, id);

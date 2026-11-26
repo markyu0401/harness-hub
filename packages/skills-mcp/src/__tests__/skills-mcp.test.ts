@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createSkillsMcpServer,
@@ -64,6 +66,30 @@ describe('skills-mcp server helpers', () => {
     await expect(readSkillContent(catalog, '../../etc/passwd')).rejects.toThrow();
 
     const server = createSkillsMcpServer({ getSkills: async () => catalog });
-    expect(server).toBeDefined();
+    const client = new Client({ name: 'skills-mcp-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    try {
+      await client.connect(clientTransport);
+      const { tools } = await client.listTools();
+      expect(tools.map((tool) => tool.name).sort()).toEqual(['list_skills', 'read_skill', 'search_skills']);
+      for (const tool of tools) {
+        expect(tool.annotations).toEqual({
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        });
+      }
+      await expect(client.callTool({ name: 'list_skills', arguments: { category: 'browser' } }))
+        .resolves.toMatchObject({ content: [{ type: 'text', text: expect.stringContaining('ego-browser') }] });
+      await expect(client.callTool({ name: 'search_skills', arguments: { query: 'browser' } }))
+        .resolves.toMatchObject({ content: [{ type: 'text', text: expect.stringContaining('ego-browser') }] });
+      await expect(client.callTool({ name: 'read_skill', arguments: { id: 'ego-browser' } }))
+        .resolves.toMatchObject({ content: [{ type: 'text', text: expect.stringContaining('Use ego-browser CLI') }] });
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });

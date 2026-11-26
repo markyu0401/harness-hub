@@ -81,8 +81,8 @@ export const McpHarnessOverrideSchema = z.object({
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   url: z.string().optional(),
-  headers: z.record(z.string()).optional(),
-  env: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
 });
 export type McpHarnessOverride = z.infer<typeof McpHarnessOverrideSchema>;
 
@@ -93,8 +93,8 @@ export const McpServerItemSchema = z.object({
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   url: z.string().optional(),
-  headers: z.record(z.string()).optional(),
-  env: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   envVars: z.array(z.string()).optional(),
   timeoutSec: z.number().optional(),
   authType: z.enum(['none', 'oauth', 'bearer', 'header']).default('none'),
